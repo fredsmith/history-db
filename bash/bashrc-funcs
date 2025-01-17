@@ -1,2 +1,34 @@
-function post_history { LAST_COMMAND=$(history 1 | sed -e 's/^ *[0-9]* *[0-9]*-[0-9]*-[0-9]* *[0-9]*:[0-9]*:[0-9]* *- *//g'); curl -d hostname="$HOSTNAME" -d command="$LAST_COMMAND" http://yourserver.example.tld/history/; } 
-function get_history {  echo -n "enter password: "; read -s HISTPASS; history -c; rm ~/.bash_history; curl -s http://yourserver.example.tld/history/download.php?passwd=$HISTPASS > ~/.bash_history; history -r; }
+function post_history {
+    LAST_COMMAND=$(history 1 | sed -e 's/^ *[0-9]* *[0-9]*-[0-9]*-[0-9]* *[0-9]*:[0-9]*:[0-9]* *- *//g')
+    SESSION_TOKEN=$(cat ~/.history-db-session)
+    RESPONSE=$(curl -d hostname="$HOSTNAME" -d command="$LAST_COMMAND" -H "Authorization: Bearer $SESSION_TOKEN" http://yourserver.example.tld:8080/history/post)
+    if echo "$RESPONSE" | grep -q "Unauthorized"; then
+        history_login
+        SESSION_TOKEN=$(cat ~/.history-db-session)
+        curl -d hostname="$HOSTNAME" -d command="$LAST_COMMAND" -H "Authorization: Bearer $SESSION_TOKEN" http://yourserver.example.tld:8080/history/post
+    fi
+}
+
+function get_history {
+    SESSION_TOKEN=$(cat ~/.history-db-session)
+    history -c
+    rm ~/.bash_history
+    RESPONSE=$(curl -s -H "Authorization: Bearer $SESSION_TOKEN" "http://yourserver.example.tld:8080/history/download")
+    if echo "$RESPONSE" | grep -q "Unauthorized"; then
+        history_login
+        SESSION_TOKEN=$(cat ~/.history-db-session)
+        RESPONSE=$(curl -s -H "Authorization: Bearer $SESSION_TOKEN" "http://yourserver.example.tld:8080/history/download")
+    fi
+    echo "$RESPONSE" > ~/.bash_history
+    history -r
+}
+
+function history_login {
+    echo -n "Enter username: "
+    read USERNAME
+    echo -n "Enter password: "
+    read -s PASSWORD
+    RESPONSE=$(curl -s -X POST -d "username=$USERNAME&password=$PASSWORD" http://yourserver.example.tld:8080/login)
+    SESSION_TOKEN=$(echo $RESPONSE | jq -r '.session_token')
+    echo $SESSION_TOKEN > ~/.history-db-session
+}
